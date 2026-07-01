@@ -10,7 +10,7 @@ import {
   Plus, Minus, AlertTriangle, Search, X, Database, Store, Pencil, 
   PlusCircle, Save, CheckCircle2, ArrowRight, Upload, 
   ChevronLeft, BarChart3, Wallet, TrendingDown, Clock, Trash2, 
-  ClipboardCopy, Download, Lock, History
+  ClipboardCopy, Download, Lock, History, Eraser
 } from 'lucide-react';
 
 import { InventoryItem, ExcelRow } from '../types';
@@ -48,6 +48,9 @@ export default function KanDingLiveStocktake() {
   const [draftStocks, setDraftStocks] = useState<Record<number, number>>({});
   const [isSavingBatch, setIsSavingBatch] = useState<boolean>(false);
   const hasDraftChanges = Object.keys(draftStocks).length > 0;
+
+  const [orderNeeds, setOrderNeeds] = useState<Record<number, number>>({});
+  const [countedItems, setCountedItems] = useState<Record<number, number>>({});
 
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('全部');
@@ -155,9 +158,17 @@ export default function KanDingLiveStocktake() {
       else newDraft[id] = finalValue;
       return newDraft;
     });
+
+    const item = items.find(i => i.id === id);
+    if (item) {
+       let need = item.min_stock - finalValue;
+       if (need <= 0) need = Math.abs(finalValue - originalValue);
+       if (need === 0) need = 1; 
+       setOrderNeeds(prev => ({...prev, [id]: need}));
+       setCountedItems(prev => ({...prev, [id]: finalValue}));
+    }
   };
 
-  // 3秒自動儲存機制
   useEffect(() => {
     if (!hasDraftChanges) return;
     const timer = setTimeout(() => {
@@ -228,6 +239,32 @@ export default function KanDingLiveStocktake() {
     navigator.clipboard.writeText(text.trim());
     toast.success(`已複製 ${supplierName} 的完整盤點紀錄！`, { icon: '📋', duration: 3000 });
     addLog('複製盤點單', `匯出了廠商「${supplierName}」的完整庫存紀錄`);
+  };
+
+  const handleCopySupplierLowStock = (supplierName: string) => {
+    const supplierItems = items.filter(i => i.supplier === supplierName);
+    const lowItems = supplierItems.filter(item => {
+      const currentStock = draftStocks[item.id] ?? item.current_stock;
+      return currentStock < item.min_stock;
+    });
+
+    if (lowItems.length === 0) return toast.error('此廠商目前庫存充足，無需叫貨。', { icon: '✨' });
+
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}/${String(today.getMonth() + 1).padStart(2, '0')}/${String(today.getDate()).padStart(2, '0')}`;
+    
+    let text = `【崁頂親子寵物餐廳 - 叫貨單】\n日期：${dateStr}\n廠商：${supplierName}\n\n`;
+    
+    lowItems.forEach(item => {
+      const currentStock = draftStocks[item.id] ?? item.current_stock;
+      let need = item.min_stock - currentStock;
+      if (need <= 0) need = 1; 
+      text += `${item.name}：${need} ${item.unit}\n`;
+    });
+
+    navigator.clipboard.writeText(text.trim());
+    toast.success(`已複製 ${supplierName} 的缺貨叫貨單！`, { icon: '📋', duration: 3000 });
+    addLog('複製叫貨單', `匯出了廠商「${supplierName}」的缺貨清單`);
   };
 
   const handleDownloadExcel = () => {
@@ -627,20 +664,25 @@ export default function KanDingLiveStocktake() {
               <div className="space-y-4 animate-in slide-in-from-right-4 duration-300">
                 <button onClick={() => setActiveSupplier(null)} className="flex items-center gap-1 text-gray-500 font-bold text-[14px] mb-2 hover:text-gray-800 transition-colors"><ChevronLeft size={20} /> 返回廠商列表</button>
                 
-                {/* 專屬於此廠商的一鍵複製卡片 */}
+                {/* ★ 雙按鈕的廠商一鍵匯出卡片 */}
                 <div className="bg-[#8780F2] rounded-[28px] p-5 flex flex-col gap-4 shadow-[0_8px_30px_rgba(135,128,242,0.3)] text-white mb-2 animate-in slide-in-from-top-4 duration-300">
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 bg-white/20 rounded-[16px] flex items-center justify-center">
                       <ClipboardCopy size={24} className="text-white" />
                     </div>
                     <div>
-                      <h3 className="text-[17px] font-bold">一鍵複製 ({activeSupplier})</h3>
-                      <p className="text-[13px] text-white/80 mt-0.5">複製該廠商的所有商品最新數量</p>
+                      <h3 className="text-[17px] font-bold">一鍵匯出 ({activeSupplier})</h3>
+                      <p className="text-[13px] text-white/80 mt-0.5">選擇複製完整盤點，或只叫缺貨商品</p>
                     </div>
                   </div>
-                  <button onClick={() => handleCopySupplierStock(activeSupplier)} className="w-full py-3.5 bg-white text-[#8780F2] rounded-[16px] text-[15px] font-bold shadow-sm active:scale-95 transition-transform flex items-center justify-center gap-2">
-                    <ClipboardCopy size={18} /> 複製完整盤點紀錄
-                  </button>
+                  <div className="flex gap-3">
+                    <button onClick={() => handleCopySupplierLowStock(activeSupplier)} className="flex-1 py-3 bg-[#FFAD7A] text-white rounded-[16px] text-[14px] font-bold shadow-sm active:scale-95 transition-transform flex items-center justify-center gap-1.5 border border-white/20">
+                      <AlertTriangle size={16} /> 複製缺貨 (叫貨)
+                    </button>
+                    <button onClick={() => handleCopySupplierStock(activeSupplier)} className="flex-1 py-3 bg-white text-[#8780F2] rounded-[16px] text-[14px] font-bold shadow-sm active:scale-95 transition-transform flex items-center justify-center gap-1.5">
+                      <ClipboardCopy size={16} /> 複製全部 (盤點)
+                    </button>
+                  </div>
                 </div>
 
                 <div className="bg-white rounded-[32px] p-6 shadow-sm border border-gray-50">
