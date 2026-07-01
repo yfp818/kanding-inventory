@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 import { Toaster, toast } from 'react-hot-toast';
 
 import { 
-  Home, Settings, Loader2, CircleUserRound, Zap, 
+  Settings, Loader2, CircleUserRound, Zap, 
   Plus, Minus, AlertTriangle, Search, X, Database, Store, Pencil, 
   PlusCircle, Save, CheckCircle2, ArrowRight, Upload, 
   ChevronLeft, BarChart3, Wallet, TrendingDown, Clock, Trash2, 
@@ -44,7 +44,8 @@ export default function KanDingLiveStocktake() {
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [isClearingDB, setIsClearingDB] = useState<boolean>(false);
   
-  const [activeTab, setActiveTab] = useState<string>('home');
+  // ★ 將預設首頁改為 'suppliers'
+  const [activeTab, setActiveTab] = useState<string>('suppliers');
   const [draftStocks, setDraftStocks] = useState<Record<number, number>>({});
   const [isSavingBatch, setIsSavingBatch] = useState<boolean>(false);
   const hasDraftChanges = Object.keys(draftStocks).length > 0;
@@ -53,9 +54,6 @@ export default function KanDingLiveStocktake() {
   const [countedItems, setCountedItems] = useState<Record<number, number>>({});
 
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('全部');
-  const [homeFilter, setHomeFilter] = useState<'all' | 'low'>('all'); 
-  
   const [activeSupplier, setActiveSupplier] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -66,13 +64,6 @@ export default function KanDingLiveStocktake() {
 
   const [actionLogs, setActionLogs] = useState<ActionLog[]>([]);
   const [backups, setBackups] = useState<BackupRecord[]>([]);
-
-  const dynamicCategories = ['全部', ...Array.from(new Set(items.map(i => i.category).filter(Boolean)))].sort();
-
-  const lowStockItemsCount = items.filter(item => {
-    const current = draftStocks[item.id] ?? item.current_stock;
-    return current < item.min_stock;
-  }).length;
 
   const totalAssetValue = items.reduce((sum, item) => sum + ((draftStocks[item.id] ?? item.current_stock) * (item.price || 0)), 0);
   const totalLowStockValue = items
@@ -428,7 +419,7 @@ export default function KanDingLiveStocktake() {
       addLog('資料庫總表同步', `Excel 同步：更新 ${updateCount} 筆，新增 ${insertCount} 筆，刪除 ${idsToDelete.length} 筆。已建立覆蓋前備份。`);
       
       fetchInventory(); 
-      setActiveTab('home');
+      setActiveTab('suppliers'); // ★ 匯入完成後直接回到廠商列表
     } catch (err: unknown) {
       toast.error(`處理失敗: ${extractErrorMessage(err)}`, { id: toastId });
     } finally {
@@ -439,7 +430,7 @@ export default function KanDingLiveStocktake() {
 
   const openAddModal = (presets?: { name?: string, supplier?: string }) => {
     setEditForm({
-      name: presets?.name || '', category: selectedCategory === '全部' ? '未分類' : selectedCategory,
+      name: presets?.name || '', category: '未分類',
       supplier: presets?.supplier || '未指定', unit: '個', price: 0, current_stock: 0, min_stock: 0
     });
     setIsModalOpen(true);
@@ -503,24 +494,6 @@ export default function KanDingLiveStocktake() {
     }
   };
 
-  const homeProcessedItems = items.filter(item => {
-    const currentStock = draftStocks[item.id] ?? item.current_stock;
-    const matchSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
-    if (!matchSearch) return false;
-    
-    if (homeFilter === 'low') return currentStock < item.min_stock;
-    return selectedCategory === '全部' || item.category === selectedCategory;
-  }).sort((a, b) => {
-    const aCurrent = draftStocks[a.id] ?? a.current_stock;
-    const bCurrent = draftStocks[b.id] ?? b.current_stock;
-    const aIsLow = aCurrent < a.min_stock;
-    const bIsLow = bCurrent < b.min_stock;
-    if (aIsLow && !bIsLow) return -1;
-    if (!aIsLow && bIsLow) return 1;
-    if (a.category !== b.category) return a.category.localeCompare(b.category, 'zh-TW');
-    return a.name.localeCompare(b.name, 'zh-TW');
-  });
-
   const suppliersList = Array.from(new Set(items.map(i => i.supplier || '未指定'))).sort();
   const getSupplierStats = (sup: string) => {
     const supItems = items.filter(i => i.supplier === sup);
@@ -529,12 +502,46 @@ export default function KanDingLiveStocktake() {
     return { count: supItems.length, lowCount, totalValue };
   };
 
+  // 全域搜尋過濾邏輯
+  const globalSearchItems = items.filter(item => 
+    item.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    (item.supplier && item.supplier.toLowerCase().includes(searchQuery.toLowerCase()))
+  ).sort((a, b) => a.name.localeCompare(b.name, 'zh-TW'));
+
   const getHeaderSubtext = () => {
-    if (activeTab === 'home') return '現場盤點作業';
     if (activeTab === 'suppliers') return '廠商進銷存管理';
     if (activeTab === 'dashboard') return '財務決策報表';
     if (activeTab === 'history') return '進出貨歷史紀錄';
     return '系統與備份管理';
+  };
+
+  // 封裝商品卡片，維持系統風格一致
+  const renderItemCard = (item: InventoryItem) => {
+    const currentStock = draftStocks[item.id] ?? item.current_stock;
+    const isLow = currentStock < item.min_stock;
+    const isModified = draftStocks[item.id] !== undefined;
+
+    return (
+      <div key={item.id} className={`bg-white rounded-[24px] p-5 transition-all duration-300 border ${isModified ? 'border-[#8780F2] shadow-md' : 'border-transparent shadow-[0_4px_20px_rgb(0,0,0,0.02)]'}`}>
+        <div className="flex-1 pr-4 mb-4">
+          <div className="flex items-center gap-2 mb-1">
+             {isLow && <span className="flex items-center gap-1 bg-[#FF6B6B]/10 text-[#FF6B6B] text-[11px] px-2 py-0.5 rounded-[6px] font-bold"><AlertTriangle size={12}/> 需叫貨</span>}
+             {isModified && <span className="bg-gray-100 text-gray-700 text-[11px] px-2 py-0.5 rounded-[8px] font-bold">自動儲存中...</span>}
+          </div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-[17px] font-bold text-gray-900 leading-tight">{item.name}</h2>
+            <button onClick={() => openEditModal(item)} className="text-gray-300 hover:text-[#8780F2] transition-colors p-1"><Pencil size={14} strokeWidth={2.5} /></button>
+          </div>
+          <p className="text-[12px] font-semibold text-gray-400 mt-0.5">單價: ${item.price} • 分類: {item.category}</p>
+        </div>
+        
+        <div className="bg-[#F4F5F9] rounded-[18px] p-1.5 flex items-center justify-between">
+          <button onClick={() => handleDraftChange(item.id, currentStock - 1, item.current_stock)} className="w-12 h-12 rounded-[14px] bg-white text-gray-600 flex items-center justify-center shadow-sm active:scale-90 transition-transform"><Minus size={20} strokeWidth={2.5} /></button>
+          <span className={`text-[22px] font-bold ${isModified ? 'text-[#8780F2]' : 'text-gray-900'}`}>{currentStock}</span>
+          <button onClick={() => handleDraftChange(item.id, currentStock + 1, item.current_stock)} className="w-12 h-12 rounded-[14px] bg-white text-gray-600 flex items-center justify-center shadow-sm active:scale-90 transition-transform"><Plus size={20} strokeWidth={2.5} /></button>
+        </div>
+      </div>
+    );
   };
 
   if (!isAuthenticated) {
@@ -577,95 +584,32 @@ export default function KanDingLiveStocktake() {
       </div>
 
       <div className="px-6 space-y-6">
-        {activeTab === 'home' && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-5">
-            <div className="relative flex items-center w-full h-[56px] bg-white shadow-[0_8px_24px_rgba(0,0,0,0.03)] rounded-full px-5 focus-within:ring-2 ring-[#8780F2]/30 transition-shadow">
+
+        {/* ========================================== */}
+        {/* 廠商與搜尋頁面 (已成為落地第一頁) */}
+        {/* ========================================== */}
+        {activeTab === 'suppliers' && (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            
+            {/* 跨廠商全域搜尋列 */}
+            <div className="relative flex items-center w-full h-[56px] bg-white shadow-[0_8px_24px_rgba(0,0,0,0.03)] rounded-full px-5 focus-within:ring-2 ring-[#8780F2]/30 transition-shadow mb-6">
               <Search size={20} className="text-gray-400" />
-              <input type="text" placeholder="搜尋或新增品項..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full h-full bg-transparent outline-none px-3 text-[15px] font-medium text-gray-900 placeholder:text-gray-400" />
+              <input type="text" placeholder="跨廠商搜尋或新增品項..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full h-full bg-transparent outline-none px-3 text-[15px] font-medium text-gray-900 placeholder:text-gray-400" />
               {searchQuery && <button onClick={() => setSearchQuery('')} className="p-1.5 bg-gray-100 rounded-full text-gray-500 hover:bg-gray-200"><X size={14} strokeWidth={3} /></button>}
             </div>
 
-            {searchQuery && homeProcessedItems.length === 0 && (
-              <div onClick={() => openAddModal({ name: searchQuery })} className="bg-[#8780F2]/10 border border-[#8780F2]/20 rounded-[20px] p-4 flex items-center justify-between cursor-pointer hover:bg-[#8780F2]/20 transition-colors">
-                <div className="flex items-center gap-3"><div className="w-10 h-10 bg-[#8780F2] text-white rounded-full flex items-center justify-center"><PlusCircle size={20} /></div><div><h4 className="text-[15px] font-bold text-[#8780F2]">找不到 "{searchQuery}"</h4><p className="text-[12px] font-medium text-[#8780F2]/70">點擊立即新增此品項</p></div></div><ArrowRight size={20} className="text-[#8780F2]" />
-              </div>
-            )}
-
-            <div className="flex gap-2 overflow-x-auto hide-scrollbar">
-              <button onClick={() => { setSelectedCategory('全部'); setHomeFilter('all'); }} className={`px-5 py-2.5 rounded-full text-[14px] font-bold whitespace-nowrap transition-all duration-300 shadow-sm ${selectedCategory === '全部' && homeFilter === 'all' ? 'bg-[#292A32] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>全部</button>
-              <button onClick={() => { setSelectedCategory('全部'); setHomeFilter('low'); }} className={`px-5 py-2.5 rounded-full text-[14px] font-bold whitespace-nowrap transition-all duration-300 shadow-sm flex items-center gap-1.5 ${homeFilter === 'low' ? 'bg-[#FF6B6B] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
-                <AlertTriangle size={14} strokeWidth={2.5} /> 缺貨 ({lowStockItemsCount})
-              </button>
-              {dynamicCategories.filter(c => c !== '全部').map(cat => (
-                <button key={cat} onClick={() => { setSelectedCategory(cat); setHomeFilter('all'); }} className={`px-5 py-2.5 rounded-full text-[14px] font-bold whitespace-nowrap transition-all duration-300 shadow-sm ${selectedCategory === cat && homeFilter === 'all' ? 'bg-[#292A32] text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>{cat}</button>
-              ))}
-            </div>
-
-            <div className="space-y-3">
-              {loading ? <div className="py-10 flex justify-center"><Loader2 className="animate-spin text-[#8780F2]" size={32} /></div> : homeProcessedItems.length === 0 ? <div className="py-10 text-center text-gray-400 font-medium text-[14px]">{homeFilter === 'low' ? '目前庫存充足，無需叫貨 🎉' : '查無品項資料'}</div> : homeProcessedItems.map(item => {
-                const currentStock = draftStocks[item.id] ?? item.current_stock;
-                const isLow = currentStock < item.min_stock;
-                const isModified = draftStocks[item.id] !== undefined;
-
-                return (
-                  <div key={item.id} className={`bg-white rounded-[24px] p-5 transition-all duration-300 border ${isModified ? 'border-[#8780F2] shadow-md' : 'border-transparent shadow-[0_4px_20px_rgb(0,0,0,0.02)]'}`}>
-                    <div className="flex-1 pr-4 mb-4">
-                      <div className="flex items-center gap-2 mb-1">
-                         {isLow && <span className="flex items-center gap-1 bg-[#FF6B6B]/10 text-[#FF6B6B] text-[11px] px-2 py-0.5 rounded-[6px] font-bold"><AlertTriangle size={12}/> 需補貨</span>}
-                         {isModified && <span className="bg-gray-100 text-gray-700 text-[11px] px-2 py-0.5 rounded-[8px] font-bold">自動儲存中...</span>}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <h2 className="text-[17px] font-bold text-gray-900 leading-tight">{item.name}</h2>
-                        <button onClick={() => openEditModal(item)} className="text-gray-300 hover:text-[#8780F2] transition-colors p-1"><Pencil size={14} strokeWidth={2.5} /></button>
-                      </div>
-                      <p className="text-[12px] font-semibold text-gray-400 mt-0.5">{item.supplier} • 水位: {item.min_stock}{item.unit}</p>
-                    </div>
-                    
-                    <div className="bg-[#F4F5F9] rounded-[18px] p-1.5 flex items-center justify-between">
-                      <button onClick={() => handleDraftChange(item.id, currentStock - 1, item.current_stock)} className="w-12 h-12 rounded-[14px] bg-white text-gray-600 flex items-center justify-center shadow-sm active:scale-90 transition-transform"><Minus size={20} strokeWidth={2.5} /></button>
-                      <span className={`text-[22px] font-bold ${isModified ? 'text-[#8780F2]' : 'text-gray-900'}`}>{currentStock}</span>
-                      <button onClick={() => handleDraftChange(item.id, currentStock + 1, item.current_stock)} className="w-12 h-12 rounded-[14px] bg-white text-gray-600 flex items-center justify-center shadow-sm active:scale-90 transition-transform"><Plus size={20} strokeWidth={2.5} /></button>
-                    </div>
+            {searchQuery ? (
+              <div className="space-y-4 animate-in fade-in duration-300">
+                {globalSearchItems.length === 0 && (
+                  <div onClick={() => openAddModal({ name: searchQuery })} className="bg-[#8780F2]/10 border border-[#8780F2]/20 rounded-[20px] p-4 flex items-center justify-between cursor-pointer hover:bg-[#8780F2]/20 transition-colors">
+                    <div className="flex items-center gap-3"><div className="w-10 h-10 bg-[#8780F2] text-white rounded-full flex items-center justify-center"><PlusCircle size={20} /></div><div><h4 className="text-[15px] font-bold text-[#8780F2]">找不到 "{searchQuery}"</h4><p className="text-[12px] font-medium text-[#8780F2]/70">點擊立即新增此品項</p></div></div><ArrowRight size={20} className="text-[#8780F2]" />
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'suppliers' && (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {!activeSupplier && (
-              <div className="space-y-6">
-                 <div className="flex items-center justify-between px-2 mb-2 mt-2">
-                    <h2 className="text-[18px] font-bold text-gray-900 tracking-tight">依廠商檢視與新增</h2>
-                    <button onClick={() => openAddModal()} className="flex items-center gap-1.5 text-[13px] font-bold text-[#8780F2] bg-[#8780F2]/10 px-4 py-2 rounded-full hover:bg-[#8780F2]/20 transition-colors"><Plus size={16} /> 新增品項</button>
-                 </div>
-                 
-                 {suppliersList.map(sup => {
-                   const stats = getSupplierStats(sup);
-                   return (
-                     <div key={sup} onClick={() => setActiveSupplier(sup)} className="bg-white rounded-[28px] p-5 shadow-sm flex items-center justify-between cursor-pointer hover:shadow-md transition-all active:scale-[0.98]">
-                        <div className="flex items-center gap-4">
-                          <div className={`w-12 h-12 rounded-[16px] flex items-center justify-center ${stats.lowCount > 0 ? 'bg-[#FF6B6B]/10 text-[#FF6B6B]' : 'bg-[#F4F5F9] text-gray-500'}`}>
-                            <Store size={24} strokeWidth={2} />
-                          </div>
-                          <div>
-                            <h3 className="text-[17px] font-bold text-gray-900">{sup}</h3>
-                            <p className="text-[13px] font-medium text-gray-400 mt-0.5">供應 {stats.count} 項商品</p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                           {stats.lowCount > 0 ? <span className="block text-[14px] font-bold text-[#FF6B6B] mb-1">{stats.lowCount} 項缺貨</span> : <span className="block text-[14px] font-bold text-emerald-500 mb-1 flex items-center gap-1"><CheckCircle2 size={14}/> 充足</span>}
-                           <ArrowRight size={18} className="text-gray-300 mt-1" />
-                        </div>
-                     </div>
-                   );
-                 })}
+                )}
+                <div className="space-y-3">
+                  {globalSearchItems.map(renderItemCard)}
+                </div>
               </div>
-            )}
-
-            {activeSupplier && (
+            ) : activeSupplier ? (
               <div className="space-y-4 animate-in slide-in-from-right-4 duration-300">
                 <button onClick={() => setActiveSupplier(null)} className="flex items-center gap-1 text-gray-500 font-bold text-[14px] mb-2 hover:text-gray-800 transition-colors"><ChevronLeft size={20} /> 返回廠商列表</button>
                 
@@ -699,31 +643,45 @@ export default function KanDingLiveStocktake() {
                     <button onClick={() => openAddModal({ supplier: activeSupplier })} className="w-10 h-10 bg-[#8780F2] text-white rounded-full flex items-center justify-center shadow-lg hover:bg-indigo-600 transition-colors"><Plus size={20} strokeWidth={2.5} /></button>
                   </div>
                   <div className="space-y-4">
-                    {items.filter(item => item.supplier === activeSupplier).map(item => {
-                        const currentStock = draftStocks[item.id] ?? item.current_stock;
-                        const isLow = currentStock < item.min_stock;
-                        return (
-                          <div key={item.id} className="flex items-center justify-between pb-4 border-b border-gray-100 last:border-0 last:pb-0">
-                            <div className="flex-1 pr-4">
-                              <div className="flex items-center gap-2 mb-1">{isLow && <span className="flex items-center gap-1 bg-[#FF6B6B]/10 text-[#FF6B6B] text-[11px] px-2 py-0.5 rounded-[6px] font-bold"><AlertTriangle size={12}/> 需叫貨</span>}</div>
-                              <div className="flex items-center gap-2"><h2 className="text-[16px] font-bold text-gray-900 leading-tight">{item.name}</h2><button onClick={() => openEditModal(item)} className="text-gray-300 hover:text-[#8780F2] transition-colors p-1"><Pencil size={14} strokeWidth={2.5} /></button></div>
-                              <p className="text-[12px] font-semibold text-gray-400 mt-0.5">單價: ${item.price} • 分類: {item.category}</p>
-                            </div>
-                            <div className="flex items-center gap-3">
-                              <button onClick={() => handleDraftChange(item.id, currentStock - 1, item.current_stock)} className="w-9 h-9 rounded-full bg-[#F4F5F9] text-gray-600 flex items-center justify-center active:scale-90 transition-transform"><Minus size={16} strokeWidth={2.5} /></button>
-                              <span className="w-6 text-center text-[18px] font-bold text-gray-900">{currentStock}</span>
-                              <button onClick={() => handleDraftChange(item.id, currentStock + 1, item.current_stock)} className="w-9 h-9 rounded-full bg-[#292A32] text-white flex items-center justify-center active:scale-90 transition-transform"><Plus size={16} strokeWidth={2.5} /></button>
-                            </div>
-                          </div>
-                        );
-                    })}
+                    {items.filter(item => item.supplier === activeSupplier).map(renderItemCard)}
                   </div>
                 </div>
+              </div>
+            ) : (
+              <div className="space-y-6 animate-in fade-in duration-300">
+                 <div className="flex items-center justify-between px-2 mb-2 mt-2">
+                    <h2 className="text-[18px] font-bold text-gray-900 tracking-tight">依廠商檢視與新增</h2>
+                    <button onClick={() => openAddModal()} className="flex items-center gap-1.5 text-[13px] font-bold text-[#8780F2] bg-[#8780F2]/10 px-4 py-2 rounded-full hover:bg-[#8780F2]/20 transition-colors"><Plus size={16} /> 新增品項</button>
+                 </div>
+                 
+                 {suppliersList.map(sup => {
+                   const stats = getSupplierStats(sup);
+                   return (
+                     <div key={sup} onClick={() => setActiveSupplier(sup)} className="bg-white rounded-[28px] p-5 shadow-sm flex items-center justify-between cursor-pointer hover:shadow-md transition-all active:scale-[0.98]">
+                        <div className="flex items-center gap-4">
+                          <div className={`w-12 h-12 rounded-[16px] flex items-center justify-center ${stats.lowCount > 0 ? 'bg-[#FF6B6B]/10 text-[#FF6B6B]' : 'bg-[#F4F5F9] text-gray-500'}`}>
+                            <Store size={24} strokeWidth={2} />
+                          </div>
+                          <div>
+                            <h3 className="text-[17px] font-bold text-gray-900">{sup}</h3>
+                            <p className="text-[13px] font-medium text-gray-400 mt-0.5">供應 {stats.count} 項商品</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                           {stats.lowCount > 0 ? <span className="block text-[14px] font-bold text-[#FF6B6B] mb-1">{stats.lowCount} 項缺貨</span> : <span className="block text-[14px] font-bold text-emerald-500 mb-1 flex items-center gap-1"><CheckCircle2 size={14}/> 充足</span>}
+                           <ArrowRight size={18} className="text-gray-300 mt-1" />
+                        </div>
+                     </div>
+                   );
+                 })}
               </div>
             )}
           </div>
         )}
 
+        {/* ========================================== */}
+        {/* 財務與營運報表 */}
+        {/* ========================================== */}
         {activeTab === 'dashboard' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
             <h2 className="text-[20px] font-bold text-gray-900 tracking-tight px-1">財務與營運總值</h2>
@@ -742,6 +700,9 @@ export default function KanDingLiveStocktake() {
           </div>
         )}
 
+        {/* ========================================== */}
+        {/* 歷史紀錄 */}
+        {/* ========================================== */}
         {activeTab === 'history' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-4">
             <h2 className="text-[20px] font-bold text-gray-900 tracking-tight px-1 mb-4">系統操作紀錄</h2>
@@ -767,6 +728,9 @@ export default function KanDingLiveStocktake() {
           </div>
         )}
 
+        {/* ========================================== */}
+        {/* 設定與匯出 */}
+        {/* ========================================== */}
         {activeTab === 'settings' && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8">
             <div>
@@ -836,7 +800,7 @@ export default function KanDingLiveStocktake() {
       </div>
 
       {/* 底部居中的藥丸型「自動儲存倒數」提示 */}
-      {hasDraftChanges && (
+      {hasDraftChanges && activeTab === 'suppliers' && (
         <div className="fixed bottom-[100px] left-1/2 -translate-x-1/2 z-40 animate-in slide-in-from-bottom-5 fade-in duration-300 w-auto whitespace-nowrap">
           <button 
             onClick={() => submitBatchChanges(true)}
@@ -852,20 +816,18 @@ export default function KanDingLiveStocktake() {
         </div>
       )}
 
-      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-[#292A32] rounded-full px-5 py-3.5 flex justify-between items-center w-[92%] max-w-[400px] shadow-[0_24px_40px_-12px_rgba(0,0,0,0.5)] z-40">
-        <button onClick={() => setActiveTab('home')} className={`relative p-2.5 rounded-full transition-all duration-300 ${activeTab === 'home' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}>
-          {activeTab === 'home' && <span className="absolute inset-0 bg-[#8780F2] rounded-full -z-10 shadow-[0_0_15px_rgba(135,128,242,0.5)]"></span>}<Home size={22} strokeWidth={2.5} />
-        </button>
-        <button onClick={() => {setActiveTab('suppliers'); setActiveSupplier(null);}} className={`relative p-2.5 rounded-full transition-all duration-300 ${activeTab === 'suppliers' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}>
+      {/* 新版極簡導覽列：拔除 Home 圖示 */}
+      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-[#292A32] rounded-full px-5 py-3.5 flex justify-between items-center w-[92%] max-w-[320px] shadow-[0_24px_40px_-12px_rgba(0,0,0,0.5)] z-40">
+        <button onClick={() => {setActiveTab('suppliers'); setActiveSupplier(null); setSearchQuery('');}} className={`relative p-2.5 rounded-full transition-all duration-300 ${activeTab === 'suppliers' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}>
           {activeTab === 'suppliers' && <span className="absolute inset-0 bg-[#FFAD7A] rounded-full -z-10 shadow-[0_0_15px_rgba(255,173,122,0.5)]"></span>}<Store size={22} strokeWidth={2.5} />
         </button>
-        <button onClick={() => setActiveTab('dashboard')} className={`relative p-2.5 rounded-full transition-all duration-300 ${activeTab === 'dashboard' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}>
+        <button onClick={() => {setActiveTab('dashboard'); setSearchQuery('');}} className={`relative p-2.5 rounded-full transition-all duration-300 ${activeTab === 'dashboard' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}>
           {activeTab === 'dashboard' && <span className="absolute inset-0 bg-[#4ADE80] rounded-full -z-10 shadow-[0_0_15px_rgba(74,222,128,0.4)]"></span>}<BarChart3 size={22} strokeWidth={2.5} />
         </button>
-        <button onClick={() => setActiveTab('history')} className={`relative p-2.5 rounded-full transition-all duration-300 ${activeTab === 'history' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}>
+        <button onClick={() => {setActiveTab('history'); setSearchQuery('');}} className={`relative p-2.5 rounded-full transition-all duration-300 ${activeTab === 'history' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}>
           {activeTab === 'history' && <span className="absolute inset-0 bg-[#38BDF8] rounded-full -z-10 shadow-[0_0_15px_rgba(56,189,248,0.4)]"></span>}<History size={22} strokeWidth={2.5} />
         </button>
-        <button onClick={() => setActiveTab('settings')} className={`relative p-2.5 rounded-full transition-all duration-300 ${activeTab === 'settings' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}>
+        <button onClick={() => {setActiveTab('settings'); setSearchQuery('');}} className={`relative p-2.5 rounded-full transition-all duration-300 ${activeTab === 'settings' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}>
           {activeTab === 'settings' && <span className="absolute inset-0 bg-gray-600 rounded-full -z-10 shadow-[0_0_15px_rgba(75,85,99,0.5)]"></span>}<Settings size={22} strokeWidth={2.5} />
         </button>
       </div>
