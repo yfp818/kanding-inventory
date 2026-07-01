@@ -273,14 +273,17 @@ export default function KanDingLiveStocktake() {
 
     const exportData = lowItems.map(item => {
       const current = draftStocks[item.id] ?? item.current_stock;
+      const need = item.min_stock - current;
       return {
         '供應商': item.supplier || '未指定',
         '品項名稱': item.name,
         '分類': item.category,
         '單位': item.unit,
+        '單價': item.price || 0,
         '目前庫存': current,
         '安全水位': item.min_stock,
-        '建議叫貨量': item.min_stock - current,
+        '建議叫貨量': need,
+        '預估補貨成本': need * (item.price || 0),
       };
     }).sort((a, b) => a['供應商'].localeCompare(b['供應商'], 'zh-TW'));
 
@@ -297,8 +300,10 @@ export default function KanDingLiveStocktake() {
         '品項名稱': item.name,
         '分類': item.category,
         '單位': item.unit,
+        '單價': item.price || 0,
         '目前庫存': item.current_stock,
         '安全水位': item.min_stock,
+        '庫存總值': item.current_stock * (item.price || 0),
     }));
     const worksheet = XLSX.utils.json_to_sheet(exportData);
     const workbook = XLSX.utils.book_new();
@@ -664,7 +669,7 @@ export default function KanDingLiveStocktake() {
               <div className="space-y-4 animate-in slide-in-from-right-4 duration-300">
                 <button onClick={() => setActiveSupplier(null)} className="flex items-center gap-1 text-gray-500 font-bold text-[14px] mb-2 hover:text-gray-800 transition-colors"><ChevronLeft size={20} /> 返回廠商列表</button>
                 
-                {/* ★ 雙按鈕的廠商一鍵匯出卡片 */}
+                {/* 雙按鈕的廠商一鍵匯出卡片 */}
                 <div className="bg-[#8780F2] rounded-[28px] p-5 flex flex-col gap-4 shadow-[0_8px_30px_rgba(135,128,242,0.3)] text-white mb-2 animate-in slide-in-from-top-4 duration-300">
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 bg-white/20 rounded-[16px] flex items-center justify-center">
